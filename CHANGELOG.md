@@ -1,3 +1,10 @@
+# HotCoco Exporter 0.3.0
+
+- 启动时静默检测本仓库 GitHub Release，提供“检查更新”和“更新并重启”。
+- 固定使用 GH-Proxy 国内推荐的 IPv4 优选节点，无需配置加速地址或 GitHub 令牌。
+- 内置发布公钥，校验签名、ZIP 和 EXE 的 SHA256，保留原文件名原位替换并支持失败恢复。
+- 继续使用原生 Win32 / WinHTTP / CNG，保持单文件分发，保留原有版本隔离和资源导出功能。
+
 # HotCoco Exporter 0.2.0
 
 Windows x64 单文件资源导出工具，约 1.03 MiB。

@@ -1,0 +1,4 @@
+{
+  "payload": "{\"schemaVersion\":\"hotcoco-exporter-update/1\",\"version\":\"0.0.1\",\"tag\":\"v0.0.1\",\"archive\":{\"name\":\"hotcoco-exporter-windows-x64.zip\",\"size\":500,\"sha256\":\"0000000000000000000000000000000000000000000000000000000000000000\"},\"executable\":{\"name\":\"HotCoco-资源导出工具.exe\",\"size\":300,\"sha256\":\"075c2a6850db6bb2e729f1d9f5313a057a42b74d9efe75fe54c21534705b614e\"},\"notes\":\"Non-executable signed test fixture; never a published update.\"}",
+  "signature": "562407cdf9cc9d8cfccc6cc6e7a4d0acf4234e35c047d7dad433b03dd7f7cad59fb85ce1ab11d70e83531a2ab34a03ac75fc4098585c6c20e9f8443e69f58a5a"
+}

@@ -1,7 +1,14 @@
-HotCoco 资源导出工具 0.2.0
+HotCoco 资源导出工具 0.3.0
 
-双击「HotCoco-Exporter-0.2.0.exe」即可使用。适用于 Windows 10/11 x64。
+双击「HotCoco-资源导出工具.exe」即可使用。适用于 Windows 10/11 x64。
 无需安装 Python、Java、.NET 或额外运行库。
+
+工具更新
+启动时静默检查本仓库 GitHub Release，也可点击右上角「检查更新」。
+发现新版后点击「更新并重启」；工具校验签名和 SHA256，等待旧进程退出后替换原 EXE。
+更新保留原文件名，失败时恢复原程序，不改动游戏资源。
+查询和下载固定走 gh-proxy.com 官方推荐的国内 IPv4 优选通道，无需 GitHub 令牌或额外配置。
+0.2.0 没有更新器，先手动换为 0.3.0 一次，此后即可从工具内更新。
 
 使用流程
 1. 推荐把 EXE 放到 .minecraft 同级目录，双击后自动检测游戏包。
@@ -23,7 +30,7 @@ HotCoco 资源导出工具 0.2.0
 
 默认版本隔离布局
 HotCoco/
-  HotCoco-Exporter-0.2.0.exe
+  HotCoco-资源导出工具.exe
   .minecraft/
     versions/
       包A/

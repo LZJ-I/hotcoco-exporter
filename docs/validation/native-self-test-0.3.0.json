@@ -1,0 +1,15 @@
+{
+  "passed": true,
+  "tests": [
+    "Windows CNG known hashes",
+    "unknown resources require explicit ownership",
+    "embedded resource roundtrip",
+    "Chinese alias preserved",
+    "existing directory protected",
+    "duplicate identity rejected",
+    "unsafe paths rejected",
+    "bad hash blocked before deployment",
+    "changed publisher file blocks export",
+    "CurseForge whitespace fingerprint"
+  ]
+}

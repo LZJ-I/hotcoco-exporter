@@ -3,6 +3,8 @@ use crate::{
     core::{self, Cancel, Row},
     instances::{self, Discovery, Instance},
     net::Client,
+    update_install,
+    updater::{self, Update},
 };
 use anyhow::{bail, Result};
 use std::{
@@ -31,6 +33,7 @@ const EXPORT: i32 = 103;
 const OWN: i32 = 104;
 const VERIFY: i32 = 105;
 const AUTO: i32 = 106;
+const UPDATE: i32 = 107;
 const PACK: i32 = 206;
 const BG: u32 = 0xfaf8f7;
 const INK: u32 = 0x433025;
@@ -43,6 +46,8 @@ enum Event {
     Row(Row, usize, usize),
     Progress(String, usize),
     End(Result<String>),
+    UpdateChecked(Result<Option<Update>>),
+    UpdateReady(Result<PathBuf>),
 }
 
 struct State {
@@ -73,6 +78,10 @@ struct State {
     sender: Sender<Event>,
     receiver: Receiver<Event>,
     cancel: Cancel,
+    pending_update: Option<Update>,
+    checking_update: bool,
+    updating: bool,
+    update_status: String,
 }
 
 fn wide(s: &str) -> Vec<u16> {
@@ -269,6 +278,10 @@ impl State {
             sender,
             receiver,
             cancel: Cancel::default(),
+            pending_update: None,
+            checking_update: false,
+            updating: false,
+            update_status: "启动时自动检查工具更新".into(),
         };
         if let Some(proxy) = proxy {
             state.status = format!("已设置代理：{proxy}");
@@ -370,6 +383,7 @@ impl State {
             (OWN, "设为自有"),
             (VERIFY, "下载验证"),
             (EXPORT, "导出清单包"),
+            (UPDATE, "检查更新"),
         ] {
             let handle = CreateWindowExW(
                 0,
@@ -473,6 +487,7 @@ impl State {
             self.status = format!("自动检测未完成：{error}，请手动选择");
         }
         self.enable();
+        self.check_update();
     }
     unsafe fn layout(&self) {
         let w = self.width;
@@ -498,9 +513,10 @@ impl State {
                 SCAN => (w - 142, 183, 94),
                 OWN => (w - 450, h - 88, 122),
                 VERIFY => (w - 316, h - 88, 122),
+                UPDATE => (w - 164, 65, 136),
                 _ => (w - 182, h - 88, 134),
             };
-            mov(*handle, x, y, width, 38);
+            mov(*handle, x, y, width, if *id == UPDATE { 26 } else { 38 });
         }
         mov(self.list, 48, 396, w - 96, (h - 592).max(80));
         mov(self.progress, 48, 258, w - 96, 3);
@@ -519,7 +535,11 @@ impl State {
         for (id, handle) in &self.buttons {
             EnableWindow(
                 *handle,
-                if *id == SCAN {
+                if self.updating {
+                    0
+                } else if *id == UPDATE {
+                    (!self.busy && !self.checking_update) as i32
+                } else if *id == SCAN {
                     1
                 } else if matches!(*id, CHOOSE | AUTO) {
                     (!self.busy) as i32
@@ -538,14 +558,29 @@ impl State {
                     .as_ptr(),
                 );
             }
+            if *id == UPDATE {
+                SetWindowTextW(
+                    *handle,
+                    wide(if self.updating {
+                        "更新中…"
+                    } else if self.checking_update {
+                        "检查中…"
+                    } else if self.pending_update.is_some() {
+                        "更新并重启"
+                    } else {
+                        "检查更新"
+                    })
+                    .as_ptr(),
+                );
+            }
         }
-        EnableWindow(self.path, (!self.busy) as i32);
-        EnableWindow(self.proxy, (!self.busy) as i32);
-        EnableWindow(self.version, (!self.busy) as i32);
-        EnableWindow(self.list, (!self.busy) as i32);
+        EnableWindow(self.path, (!self.busy && !self.updating) as i32);
+        EnableWindow(self.proxy, (!self.busy && !self.updating) as i32);
+        EnableWindow(self.version, (!self.busy && !self.updating) as i32);
+        EnableWindow(self.list, (!self.busy && !self.updating) as i32);
         EnableWindow(
             self.packs,
-            (!self.busy && !self.instances.is_empty()) as i32,
+            (!self.busy && !self.updating && !self.instances.is_empty()) as i32,
         );
         InvalidateRect(self.hwnd, null(), 0);
     }
@@ -864,6 +899,49 @@ impl State {
         });
         Ok(())
     }
+    unsafe fn check_update(&mut self) {
+        if self.checking_update || self.updating {
+            return;
+        }
+        self.checking_update = true;
+        self.update_status = "正在检查 GitHub Release · 国内优选加速".into();
+        self.enable();
+        let client = Client {
+            proxy: proxy(self.proxy),
+        };
+        let sender = self.sender.clone();
+        std::thread::spawn(move || {
+            let _ = sender.send(Event::UpdateChecked(updater::check(
+                &client,
+                updater::VERSION,
+            )));
+        });
+    }
+    unsafe fn update_action(&mut self) -> Result<()> {
+        if self.busy || self.updating || self.checking_update {
+            return Ok(());
+        }
+        let Some(update) = self.pending_update.clone() else {
+            self.check_update();
+            return Ok(());
+        };
+        self.updating = true;
+        self.update_status = format!(
+            "正在下载 {}，校验完成后将重启工具…",
+            update.manifest.version
+        );
+        self.enable();
+        let client = Client {
+            proxy: proxy(self.proxy),
+        };
+        let sender = self.sender.clone();
+        std::thread::spawn(move || {
+            let result = updater::download(&client, &update)
+                .and_then(|bytes| update_install::begin(&update, &bytes, client.proxy));
+            let _ = sender.send(Event::UpdateReady(result));
+        });
+        Ok(())
+    }
     unsafe fn poll(&mut self) {
         while let Ok(event) = self.receiver.try_recv() {
             match event {
@@ -892,6 +970,37 @@ impl State {
                     }
                     self.enable();
                 }
+                Event::UpdateChecked(result) => {
+                    self.checking_update = false;
+                    match result {
+                        Ok(Some(update)) => {
+                            self.update_status = format!(
+                                "发现新版 {} · 点击“更新并重启”安装",
+                                update.manifest.version
+                            );
+                            self.pending_update = Some(update);
+                        }
+                        Ok(None) => {
+                            self.update_status = "当前已是最新版本 · 国内优选加速".into();
+                            self.pending_update = None;
+                        }
+                        Err(_) => {
+                            self.update_status = "暂时无法检查更新，可点击重试；仍可正常导出".into()
+                        }
+                    }
+                    self.enable();
+                }
+                Event::UpdateReady(result) => match result {
+                    Ok(_) => {
+                        DestroyWindow(self.hwnd);
+                        return;
+                    }
+                    Err(error) => {
+                        self.updating = false;
+                        self.update_status = format!("更新未完成：{error}");
+                        self.enable();
+                    }
+                },
             }
             SendMessageW(self.progress, PBM_SETPOS, self.percent, 0);
             InvalidateRect(self.hwnd, null(), 0);
@@ -991,13 +1100,24 @@ unsafe fn paint(hdc: HDC, s: &State, preview: bool) {
     text(
         hdc,
         s,
-        "HOTCOCO   /   0.2.0",
+        &format!("HOTCOCO   /   {}", updater::VERSION),
         w - 169,
         32,
         130,
         27,
         s.small,
         ACCENT,
+    );
+    text(
+        hdc,
+        s,
+        &s.update_status,
+        92,
+        80,
+        w - 300,
+        16,
+        s.small,
+        MUTED,
     );
     card(hdc, s, 28, 96, w - 56, 170, WHITE, LINE, 20);
     text(hdc, s, "游戏目录", 48, 108, 250, 25, s.bold, INK);
@@ -1180,6 +1300,7 @@ unsafe fn paint(hdc: HDC, s: &State, preview: bool) {
             (OWN, "设为自有"),
             (VERIFY, "下载验证"),
             (EXPORT, "导出清单包"),
+            (UPDATE, "检查更新"),
         ] {
             let (x, y, bw) = match id {
                 CHOOSE => (w - 254, 141, 100),
@@ -1187,12 +1308,13 @@ unsafe fn paint(hdc: HDC, s: &State, preview: bool) {
                 SCAN => (w - 142, 183, 94),
                 OWN => (w - 450, h - 88, 122),
                 VERIFY => (w - 316, h - 88, 122),
+                UPDATE => (w - 164, 65, 136),
                 _ => (w - 182, h - 88, 134),
             };
             button(
                 hdc,
                 s,
-                rect(s, x, y, bw, 38),
+                rect(s, x, y, bw, if id == UPDATE { 26 } else { 38 }),
                 label,
                 matches!(id, SCAN | EXPORT),
                 s.rows.is_empty() && matches!(id, OWN | VERIFY | EXPORT),
@@ -1401,6 +1523,7 @@ unsafe extern "system" fn procedure(
                 OWN => s.mark_own(),
                 EXPORT => s.export_or_verify(false),
                 VERIFY => s.export_or_verify(true),
+                UPDATE => s.update_action(),
                 _ => Ok(()),
             };
             if let Err(e) = result {
@@ -1439,7 +1562,7 @@ unsafe extern "system" fn procedure(
     }
 }
 
-pub fn run(proxy: Option<String>) -> Result<()> {
+pub fn run(proxy: Option<String>, update_result: Option<&Path>) -> Result<()> {
     unsafe {
         let _ = windows::Win32::System::Com::CoInitializeEx(
             None,
@@ -1461,6 +1584,10 @@ pub fn run(proxy: Option<String>) -> Result<()> {
         class.hIcon = LoadIconW(instance, 1 as _);
         RegisterClassW(&class);
         let mut state = Box::new(State::new(proxy.clone()));
+        if let Some(directory) = update_result {
+            state.update_status = update_install::completed(directory)
+                .unwrap_or_else(|error| format!("更新结果：{error}"));
+        }
         let mut area = rect(&state, 0, 0, state.width, state.height);
         AdjustWindowRectEx(&mut area, WS_OVERLAPPEDWINDOW, 0, 0);
         let hwnd = CreateWindowExW(

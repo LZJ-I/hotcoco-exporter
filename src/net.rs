@@ -10,6 +10,60 @@ pub struct Client {
     pub proxy: Option<String>,
 }
 
+#[derive(Clone, Copy)]
+enum RequestKind {
+    Json,
+    Resource,
+    Update,
+}
+
+pub fn allowed_update(address: &str) -> Result<()> {
+    let parsed = url::Url::parse(address)?;
+    if parsed.scheme() != "https"
+        || !parsed.username().is_empty()
+        || parsed.password().is_some()
+        || parsed.port().is_some_and(|port| port != 443)
+        || parsed.fragment().is_some()
+    {
+        bail!("无效更新地址");
+    }
+    match parsed.host_str() {
+        Some("v4.gh-proxy.org") => {
+            let mut original = parsed.path().trim_start_matches('/').to_string();
+            if let Some(query) = parsed.query() {
+                original.push('?');
+                original.push_str(query);
+            }
+            let original_url = url::Url::parse(&original)?;
+            if !matches!(
+                original_url.host_str(),
+                Some("github.com" | "api.github.com")
+            ) {
+                bail!("无效更新代理目标");
+            }
+            allowed_update(&original)?;
+        }
+        Some("api.github.com") if parsed.path() == "/repos/LZJ-I/hotcoco-exporter/releases" => {}
+        Some("github.com") => {
+            let parts: Vec<_> = parsed.path().split('/').collect();
+            if parts.len() != 7
+                || parts[1..5] != ["LZJ-I", "hotcoco-exporter", "releases", "download"]
+                || crate::updater::parse_version(parts[5].trim_start_matches('v')).is_err()
+                || !matches!(
+                    parts[6],
+                    crate::updater::UPDATE_INDEX | crate::updater::UPDATE_ARCHIVE
+                )
+                || parsed.query().is_some()
+            {
+                bail!("更新文件不属于导出工具发布仓库");
+            }
+        }
+        Some("release-assets.githubusercontent.com" | "objects.githubusercontent.com") => {}
+        _ => bail!("不支持的更新地址"),
+    }
+    Ok(())
+}
+
 pub fn allowed_download(url: &str) -> Result<()> {
     let parsed = url::Url::parse(url)?;
     if parsed.scheme() != "https"
@@ -35,7 +89,8 @@ pub fn allowed_download(url: &str) -> Result<()> {
 impl Client {
     pub fn json(&self, url: &str, body: Option<&Value>) -> Result<(u32, Value)> {
         let payload = body.map(serde_json::to_vec).transpose()?;
-        let (status, data) = self.request(url, payload.as_deref(), 32 * 1024 * 1024, false)?;
+        let (status, data) =
+            self.request(url, payload.as_deref(), 32 * 1024 * 1024, RequestKind::Json)?;
         if status == 404 {
             return Ok((status, Value::Null));
         }
@@ -50,15 +105,30 @@ impl Client {
 
     pub fn download(&self, url: &str, max: usize) -> Result<Vec<u8>> {
         allowed_download(url)?;
-        let (status, bytes) = self.request(url, None, max, true)?;
+        let (status, bytes) = self.request(url, None, max, RequestKind::Resource)?;
         if status != 200 {
             bail!("下载返回 HTTP {status}");
         }
         Ok(bytes)
     }
 
+    pub fn update_bytes(&self, url: &str, max: usize) -> Result<Vec<u8>> {
+        allowed_update(url)?;
+        let (status, bytes) = self.request(url, None, max, RequestKind::Update)?;
+        if status != 200 {
+            bail!("更新服务返回 HTTP {status}");
+        }
+        Ok(bytes)
+    }
+
     #[cfg(not(windows))]
-    fn request(&self, _: &str, _: Option<&[u8]>, _: usize, _: bool) -> Result<(u32, Vec<u8>)> {
+    fn request(
+        &self,
+        _: &str,
+        _: Option<&[u8]>,
+        _: usize,
+        _: RequestKind,
+    ) -> Result<(u32, Vec<u8>)> {
         bail!("网络功能需要 Windows；Linux 构建用于核心测试")
     }
 
@@ -68,7 +138,7 @@ impl Client {
         address: &str,
         body: Option<&[u8]>,
         max: usize,
-        resource: bool,
+        kind: RequestKind,
     ) -> Result<(u32, Vec<u8>)> {
         use std::ptr::{null, null_mut};
         use windows_sys::Win32::{Foundation::GetLastError, Networking::WinHttp::*};
@@ -96,8 +166,10 @@ impl Client {
             if url.scheme() != "https" || !url.username().is_empty() || url.password().is_some() {
                 bail!("仅支持 HTTPS");
             }
-            if resource {
-                allowed_download(&address)?;
+            match kind {
+                RequestKind::Resource => allowed_download(&address)?,
+                RequestKind::Update => allowed_update(&address)?,
+                RequestKind::Json => {}
             }
             let proxy = self.proxy.as_deref().unwrap_or("").trim();
             let proxy = proxy
@@ -107,7 +179,12 @@ impl Client {
             let proxy_wide = wide(proxy);
             unsafe {
                 let session = checked(WinHttpOpen(
-                    wide("HotCoco-Exporter/0.2 (+https://github.com)").as_ptr(),
+                    wide(concat!(
+                        "HotCoco-Exporter/",
+                        env!("CARGO_PKG_VERSION"),
+                        " (+https://github.com/LZJ-I/hotcoco-exporter)"
+                    ))
+                    .as_ptr(),
                     if proxy.is_empty() {
                         WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY
                     } else {

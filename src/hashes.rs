@@ -11,6 +11,9 @@ pub struct Hashes {
 }
 
 impl Hashes {
+    pub fn sha256(data: &[u8]) -> Result<String> {
+        digest("SHA256", data, 32)
+    }
     pub fn of(data: &[u8]) -> Result<Self> {
         Ok(Self {
             sha1: digest("SHA1", data, 20)?,

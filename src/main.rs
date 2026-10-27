@@ -5,6 +5,9 @@ mod gui;
 mod hashes;
 mod instances;
 mod net;
+#[cfg(windows)]
+mod update_install;
+mod updater;
 
 use anyhow::{bail, Context, Result};
 use serde_json::json;
@@ -26,8 +29,8 @@ fn command(args: &[String]) -> Result<()> {
     };
     let cancel = core::Cancel::default();
     match args.first().map(String::as_str) {
-        None|Some("--proxy")=>{
-            #[cfg(windows)] return gui::run(client.proxy);
+        None|Some("--proxy")|Some("--update-result")=>{
+            #[cfg(windows)] return gui::run(client.proxy,value(args,"--update-result").as_deref().map(Path::new));
             #[cfg(not(windows))] bail!("图形界面需要 Windows");
         },
         Some("--preview")=>{
@@ -67,8 +70,38 @@ fn command(args: &[String]) -> Result<()> {
             if let Some(path)=value(args,"--report"){core::write_json(Path::new(&path),&report)?;}
             println!("{}",serde_json::to_string(&report)?);
         },
-        Some("--help")|Some("help")=>println!("HotCoco Exporter 0.2.0\n双击打开图形界面；自动查找同级 .minecraft。\ndiscover [DIRECTORY] --report NEW.json\nscan DIRECTORY [--instance PACK_ID] --report NEW.json [--proxy HOST:PORT]\nexport DIRECTORY [--instance PACK_ID] --output NEW.zip --version VERSION [--own mods/FILE.jar] [--exclude PATH] [--report NEW.json]\nrestore PACKAGE --destination NEW_DIRECTORY [--provider modrinth|curseforge] [--report NEW.json]\nself-test --workdir NEW_DIRECTORY --report NEW.json\n--preview NEW.png"),
-        Some("--version")=>println!("HotCoco Exporter 0.2.0"),
+        Some("check-update")|Some("download-update")=>{
+            let current=value(args,"--current-version").unwrap_or_else(||updater::VERSION.into());
+            let update=updater::check(&client,&current)?;
+            let mut report=json!({"currentVersion":current,"available":update.is_some(),"proxy":updater::PROXY,"repository":"LZJ-I/hotcoco-exporter"});
+            if let Some(update)=update {
+                report["version"]=json!(update.manifest.version);
+                if args[0]=="download-update"{
+                    use std::io::Write;
+                    let bytes=updater::download(&client,&update)?;
+                    let destination=PathBuf::from(required(args,"--output")?);
+                    let mut file=fs::OpenOptions::new().create_new(true).write(true).open(&destination)?;
+                    file.write_all(&bytes)?;file.sync_all()?;
+                    report["downloadVerified"]=json!(true);report["output"]=json!(destination);
+                }
+            }
+            if let Some(path)=value(args,"--report"){core::write_json(Path::new(&path),&report)?;}
+            println!("{report}");
+        },
+        Some("verify-update")=>{
+            let envelope=fs::read(required(args,"--manifest")?)?;
+            let manifest=updater::verify_envelope(&envelope)?;
+            if let Some(archive)=value(args,"--archive"){updater::verify_archive(&manifest,&fs::read(archive)?)?;}
+            let report=json!({"passed":true,"version":manifest.version,"signatureVerified":true,"archiveVerified":value(args,"--archive").is_some()});
+            if let Some(path)=value(args,"--report"){core::write_json(Path::new(&path),&report)?;}
+            println!("{report}");
+        },
+        Some("--apply-update")=>{
+            #[cfg(windows)] return update_install::apply(Path::new(args.get(1).context("缺少更新工作目录")?));
+            #[cfg(not(windows))] bail!("原位更新需要 Windows");
+        },
+        Some("--help")|Some("help")=>println!("HotCoco Exporter {}\n双击打开图形界面；自动查找同级 .minecraft。\ndiscover [DIRECTORY] --report NEW.json\nscan DIRECTORY [--instance PACK_ID] --report NEW.json [--proxy HOST:PORT]\nexport DIRECTORY [--instance PACK_ID] --output NEW.zip --version VERSION [--own mods/FILE.jar] [--exclude PATH] [--report NEW.json]\nrestore PACKAGE --destination NEW_DIRECTORY [--provider modrinth|curseforge] [--report NEW.json]\nself-test --workdir NEW_DIRECTORY --report NEW.json\ncheck-update [--report NEW.json]\ndownload-update --output NEW.exe [--report NEW.json]\n--preview NEW.png",updater::VERSION),
+        Some("--version")=>println!("HotCoco Exporter {}",updater::VERSION),
         Some(other)=>bail!("未知命令：{other}"),
     }
     Ok(())

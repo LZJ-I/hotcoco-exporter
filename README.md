@@ -1,17 +1,17 @@
 # HotCoco 资源导出工具
 
-轻量的 Windows 原生资源导出工具，使用 Rust、Win32、WinHTTP 和 Windows CNG。当前版本 **0.2.0**，Windows x64 单文件 EXE 约 **1.03 MiB**，无需 Python、Java 或 .NET。
+轻量的 Windows 原生资源导出工具，使用 Rust、Win32、WinHTTP 和 Windows CNG。当前版本 **0.3.0**，Windows x64 单文件 EXE 约 **1.18 MiB**，无需 Python、Java 或 .NET。
 
 ## 下载和使用
 
-在 [Releases](https://github.com/LZJ-I/hotcoco-exporter/releases) 下载 EXE 或便携 ZIP。私有仓库的下载需要有仓库访问权限。
+在公开的 [Releases](https://github.com/LZJ-I/hotcoco-exporter/releases) 下载便携 ZIP，解压得到 `HotCoco-资源导出工具.exe`。不需要 GitHub 账号或令牌。
 
 推荐将 EXE 放到 `.minecraft` 同级：
 
 ```text
 HotCoco/
 ├─ HotCoco.exe
-├─ HotCoco-Exporter-0.2.0.exe
+├─ HotCoco-资源导出工具.exe
 └─ .minecraft/
    └─ versions/
       ├─ 包A/
@@ -29,6 +29,14 @@ HotCoco/
 
 代理留空时使用系统网络设置，也可以填写 `127.0.0.1:7897` 等明确代理地址。
 
+## 工具更新
+
+启动时在后台检查本仓库的正式 GitHub Release，界面右上角也可手动“检查更新”。发现新版本后显示“更新并重启”，点击后下载、校验并替换当前 EXE；保留原来的文件夹和文件名。扫描、导出期间禁止执行更新。检查失败只显示行内状态，可继续正常使用工具。
+
+更新查询和下载固定走 [GH-Proxy](https://gh-proxy.com/) 官方转换器当前推荐的国内 IPv4 优选节点 `https://v4.gh-proxy.org/`（2026-10-27 核实），无需填写加速地址。采用数字版本比较，忽略草稿、预发布和更旧版本。程序内置发布公钥，使用 Windows CNG 校验 ECDSA P-256 签名以及 ZIP、EXE 的 SHA256，再等待旧进程退出后替换；替换或启动失败时恢复原程序。
+
+0.2.0 未包含更新器，需先手动替换一次为 0.3.0；此后可在工具内更新。更新不会修改 `.minecraft` 或游戏资源。
+
 ![界面预览](docs/preview.png)
 
 ## 导出规则
@@ -41,7 +49,7 @@ HotCoco/
 - 导出前再次核对原文件；下载验证检查大小及 SHA-1、SHA-256、SHA-512、MD5。
 - 仅接受资源目录下的 JAR／ZIP，单文件限制为 256 MiB。
 
-当前范围是资源导出和还原验证。Minecraft 本体安装、正式启动器更新、GitHub 网页发布尚未接入。
+当前范围是资源导出、还原验证以及本工具自身更新。Minecraft 本体安装和正式启动器的更新由相应项目实现。
 
 ## 构建
 
@@ -57,6 +65,8 @@ HotCoco/
 
 输出位置：`target/x86_64-pc-windows-gnu/release/hotcoco-exporter.exe`。
 
+发布新版本的签名、打包与上传步骤见 [更新发布说明](docs/UPDATES.md)。
+
 核心测试：
 
 ```sh
@@ -69,22 +79,22 @@ cargo test --offline
 
 ```powershell
 # 自动发现 EXE 同级的 .minecraft
-.\HotCoco-Exporter-0.2.0.exe discover --report discovery.json
+.\HotCoco-资源导出工具.exe discover --report discovery.json
 
 # 指定目录，检测其中的包
-.\HotCoco-Exporter-0.2.0.exe discover D:\HotCoco --report packs.json
+.\HotCoco-资源导出工具.exe discover D:\HotCoco --report packs.json
 
 # 从多个隔离版本中选定一个导出；输出位置需要在实例目录之外
-.\HotCoco-Exporter-0.2.0.exe export D:\HotCoco --instance HotCoco-A --output client.hotcoco.zip --version 1.0.0
+.\HotCoco-资源导出工具.exe export D:\HotCoco --instance HotCoco-A --output client.hotcoco.zip --version 1.0.0
 
 # 按需增加 --own mods/自有文件.jar，或 --exclude mods/排除的文件.jar
 # 路径有空格时请使用引号
 
 # 下载到全新目录进行还原验证
-.\HotCoco-Exporter-0.2.0.exe restore client.hotcoco.zip --destination D:\HotCoco-Test --report receipt.json
+.\HotCoco-资源导出工具.exe restore client.hotcoco.zip --destination D:\HotCoco-Test --report receipt.json
 
 # 内置自测，不访问真实游戏目录
-.\HotCoco-Exporter-0.2.0.exe self-test --workdir D:\Exporter-SelfTest --report self-test.json
+.\HotCoco-资源导出工具.exe self-test --workdir D:\Exporter-SelfTest --report self-test.json
 ```
 
 联网命令可以追加 `--proxy 127.0.0.1:7897`，还原命令可通过 `--provider curseforge` 优先尝试该来源。
