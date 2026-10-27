@@ -1,0 +1,46 @@
+{
+  "version": "0.2.0",
+  "exeNextToMinecraftDiscoveredTwoPacks": true,
+  "manualVersionSelectsOnePack": true,
+  "ambiguousSelectionBlocked": true,
+  "selectedPackage": {
+    "id": "HotCoco-A",
+    "layout": "version-isolated",
+    "minecraftVersion": "1.21.1",
+    "loader": {
+      "name": "Fabric",
+      "version": "0.16.10"
+    }
+  },
+  "exportedFiles": 5,
+  "otherVersionAndSharedResourcesExcluded": true,
+  "namesAndHashesMatch": true,
+  "nativeSelfTest": true,
+  "checks": [
+    {
+      "path": "mods/Fabric API 基础库.jar",
+      "nameMatches": true,
+      "sha256Matches": true
+    },
+    {
+      "path": "mods/[性能优化] 钠 Sodium.jar",
+      "nameMatches": true,
+      "sha256Matches": true
+    },
+    {
+      "path": "mods/[物品查询] JEI.jar",
+      "nameMatches": true,
+      "sha256Matches": true
+    },
+    {
+      "path": "resourcepacks/鲜活动画 材质包.zip",
+      "nameMatches": true,
+      "sha256Matches": true
+    },
+    {
+      "path": "shaderpacks/Complementary 自定义光影.zip",
+      "nameMatches": true,
+      "sha256Matches": true
+    }
+  ]
+}
